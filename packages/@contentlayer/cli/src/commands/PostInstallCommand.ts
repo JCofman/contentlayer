@@ -1,7 +1,8 @@
-import * as core from '@contentlayer/core'
-import { OT, pipe, T } from '@contentlayer/utils/effect'
-import { fs } from '@contentlayer/utils/node'
 import * as path from 'node:path'
+
+import * as core from '@contentlayer/core'
+import { fs } from '@contentlayer/utils'
+import { OT, pipe, T } from '@contentlayer/utils/effect'
 
 import { BaseCommand } from './_BaseCommand.js'
 
@@ -62,7 +63,8 @@ const generateTypes = ({
     const schemaDef = yield* $(source.provideSchema(esbuildHash))
 
     if (!indexDtsFileExists) {
-      yield* $(fs.writeFile(indexDtsFilePath, core.makeDataTypes({ schemaDef })))
+      const options = source.options
+      yield* $(fs.writeFile(indexDtsFilePath, core.makeDataTypes({ schemaDef, options })))
     }
 
     if (!typesDtsFileExists) {

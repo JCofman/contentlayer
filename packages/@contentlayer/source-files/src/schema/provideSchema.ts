@@ -22,7 +22,7 @@ export const makeCoreSchema = ({
     for (const documentDef of documentTypeDefs) {
       validateDefName({ defName: documentDef.name })
 
-      const fieldDefs = getFieldDefEntries(documentDef.fields).map((_) =>
+      const fieldDefs = getFieldDefEntries(documentDef.fields ?? []).map((_) =>
         fieldDefEntryToCoreFieldDef(_, options.fieldOptions),
       )
 
@@ -56,7 +56,7 @@ export const makeCoreSchema = ({
 
       const computedFields = Object.entries(documentDef.computedFields ?? {}).map<core.ComputedField>(
         ([name, computedField]) => ({
-          ...utils.pick(computedField, ['description', 'type']),
+          ...utils.pick(computedField, ['description', 'type'], false),
           name,
           // NOTE we need to flip the variance here (casting a core.Document to a LocalDocument)
           resolve: computedField.resolve as core.ComputedFieldResolver,
@@ -65,7 +65,7 @@ export const makeCoreSchema = ({
 
       const coreDocumentDef: core.DocumentTypeDef = {
         _tag: 'DocumentTypeDef',
-        ...utils.pick(documentDef, ['name', 'description']),
+        ...utils.pick(documentDef, ['name', 'description'], false),
         isSingleton: documentDef.isSingleton ?? false,
         fieldDefs,
         computedFields,
@@ -80,9 +80,9 @@ export const makeCoreSchema = ({
 
       const coreNestedTypeDef: core.NestedTypeDef = {
         _tag: 'NestedTypeDef',
-        ...utils.pick(nestedDef, ['description']),
+        ...utils.pick(nestedDef, ['description'], false),
         name: nestedDef.name,
-        fieldDefs: getFieldDefEntries(nestedDef.fields).map((_) =>
+        fieldDefs: getFieldDefEntries(nestedDef.fields ?? []).map((_) =>
           fieldDefEntryToCoreFieldDef(_, options.fieldOptions),
         ),
         extensions: nestedDef.extensions ?? {},
@@ -135,7 +135,7 @@ const fieldDefEntryToCoreFieldDef = (
   fieldOptions: core.FieldOptions,
 ): core.FieldDef => {
   const baseFields: core.FieldDefBase = {
-    ...utils.pick(fieldDef, ['type', 'default', 'description']),
+    ...utils.pick(fieldDef, ['type', 'default', 'description'], false),
     name,
     isRequired: fieldDef.required ?? false,
     isSystemField: false,
@@ -185,7 +185,7 @@ const fieldDefEntryToCoreFieldDef = (
         })
       }
 
-      const fieldDefs = getFieldDefEntries(nestedTypeDef.fields).map((_) =>
+      const fieldDefs = getFieldDefEntries(nestedTypeDef.fields ?? []).map((_) =>
         fieldDefEntryToCoreFieldDef(_, fieldOptions),
       )
       const extensions = nestedTypeDef.extensions ?? {}
@@ -223,18 +223,15 @@ const fieldDefEntryToCoreFieldDef = (
       })
     case 'boolean':
     case 'date':
-    // case 'image':
+    case 'image':
     case 'json':
     case 'markdown':
     case 'mdx':
     case 'number':
-    // case 'slug':
     case 'string':
-      // case 'text':
-      // case 'url':
       return {
         // needs to pick again since fieldDef.type has been
-        ...utils.pick(fieldDef, ['type', 'default', 'description']),
+        ...utils.pick(fieldDef, ['type', 'default', 'description'], false),
         isRequired: fieldDef.required ?? false,
         name,
         isSystemField: false,
@@ -251,7 +248,13 @@ const fieldListItemsToCoreFieldListDefItems = (
   switch (listFieldDefItem.type) {
     case 'boolean':
     case 'string':
-      return utils.pick(listFieldDefItem, ['type'])
+    case 'number':
+    case 'date':
+    case 'json':
+    case 'markdown':
+    case 'mdx':
+    case 'image':
+      return utils.pick(listFieldDefItem, ['type'], false)
     case 'enum':
       return {
         type: 'enum',
@@ -263,7 +266,7 @@ const fieldListItemsToCoreFieldListDefItems = (
         return { type: 'nested', nestedTypeName: nestedTypeDef.name }
       }
 
-      const fieldDefs = getFieldDefEntries(nestedTypeDef.fields).map((_) =>
+      const fieldDefs = getFieldDefEntries(nestedTypeDef.fields ?? []).map((_) =>
         fieldDefEntryToCoreFieldDef(_, fieldOptions),
       )
       const extensions = nestedTypeDef.extensions ?? {}
@@ -290,7 +293,7 @@ const collectNestedDefs = (documentDefs: LocalSchema.DocumentTypeDef[]): LocalSc
 
     objectDefMap[objectDef.name] = objectDef
 
-    getFieldDefValues(objectDef.fields).forEach(traverseField)
+    getFieldDefValues(objectDef.fields ?? []).forEach(traverseField)
   }
 
   const traverseField = (fieldDef: LocalSchema.FieldDef): void => {
@@ -302,7 +305,7 @@ const collectNestedDefs = (documentDefs: LocalSchema.DocumentTypeDef[]): LocalSc
             if (LocalSchema.isNestedTypeDef(nestedTypeDef)) {
               return traverseNestedDef(nestedTypeDef)
             }
-            return getFieldDefValues(nestedTypeDef.fields).forEach(traverseField)
+            return getFieldDefValues(nestedTypeDef.fields ?? []).forEach(traverseField)
           })
         }
 
@@ -310,16 +313,16 @@ const collectNestedDefs = (documentDefs: LocalSchema.DocumentTypeDef[]): LocalSc
         if (LocalSchema.isNestedTypeDef(nestedTypeDef)) {
           return traverseNestedDef(nestedTypeDef)
         }
-        return getFieldDefValues(nestedTypeDef.fields).forEach(traverseField)
+        return getFieldDefValues(nestedTypeDef.fields ?? []).forEach(traverseField)
       case 'list':
         if (LocalSchema.isListPolymorphicFieldDef(fieldDef)) {
           return fieldDef.of.forEach(traverseListFieldItem)
         }
         return traverseListFieldItem(fieldDef.of)
+      case 'image':
       case 'boolean':
       case 'date':
       case 'enum':
-      // case 'image':
       case 'json':
       case 'markdown':
       case 'mdx':
@@ -340,13 +343,13 @@ const collectNestedDefs = (documentDefs: LocalSchema.DocumentTypeDef[]): LocalSc
       case 'nested':
         const nestedTypeDef = listFieldDefItem.def()
         if (LocalSchema.isNestedUnnamedTypeDef(nestedTypeDef)) {
-          return getFieldDefValues(nestedTypeDef.fields).forEach(traverseField)
+          return getFieldDefValues(nestedTypeDef.fields ?? []).forEach(traverseField)
         }
         return traverseNestedDef(nestedTypeDef)
     }
   }
 
-  documentDefs.flatMap((_) => getFieldDefValues(_.fields)).forEach(traverseField)
+  documentDefs.flatMap((_) => getFieldDefValues(_.fields ?? [])).forEach(traverseField)
 
   return Object.values(objectDefMap)
 }

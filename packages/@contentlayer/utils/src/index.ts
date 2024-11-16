@@ -1,3 +1,5 @@
+import { type Temporal, toTemporalInstant } from '@js-temporal/polyfill'
+
 export * from './string.js'
 export * from './guards.js'
 export * from './object/index.js'
@@ -6,15 +8,27 @@ export * from './promise.js'
 export * from './hash.js'
 export * from './single-item.js'
 export * from './file-paths.js'
+export * as base64 from './base64.js'
 export * from './tracing-effect/index.js'
+export { fs } from './fs.js'
+export * from './fs-in-memory.js'
 
+export { Temporal } from '@js-temporal/polyfill'
 export { AsciiTree } from 'oo-ascii-tree'
 export * as pattern from 'ts-pattern'
 import { Tagged } from '@effect-ts/core/Case'
 // inflection is a CJS module, so we need to import it as default export
-import inflection from 'inflection'
+import * as inflection from 'inflection'
 
 export { inflection }
+
+Date.prototype.toTemporalInstant = toTemporalInstant
+
+declare global {
+  interface Date {
+    toTemporalInstant(): Temporal.Instant
+  }
+}
 
 export const recRemoveUndefinedValues = (val: any): void => {
   if (Array.isArray(val)) {
@@ -41,7 +55,7 @@ export const partition = <T, TLeft extends T>(
       } else {
         acc[1]!.push(el as Exclude<T, TLeft>)
       }
-      return acc
+      return acc as any
     },
     [[], []] as [TLeft[], Exclude<T, TLeft>[]],
   )

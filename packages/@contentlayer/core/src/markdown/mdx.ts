@@ -1,8 +1,9 @@
+import * as path from 'node:path'
+
 import { errorToString } from '@contentlayer/utils'
 import { OT, pipe, T, Tagged } from '@contentlayer/utils/effect'
 import * as mdxBundler from 'mdx-bundler'
 import type { BundleMDXOptions } from 'mdx-bundler/dist/types'
-import * as path from 'node:path'
 
 import type { RawDocumentData } from '../data-types.js'
 import type { MDXOptions } from '../plugin.js'
@@ -25,12 +26,28 @@ export const bundleMDX = ({
       if (mdxString.length === 0) {
         return ''
       }
-      const { rehypePlugins, remarkPlugins, cwd: cwd_, ...restOptions } = options ?? {}
+      const {
+        rehypePlugins,
+        remarkPlugins,
+        resolveCwd,
+        cwd: cwd_,
+        mdxOptions: mapMdxOptions,
+        esbuildOptions: mapEsbuildOptions,
+        ...restOptions
+      } = options ?? {}
 
       const getCwdFromContentDirPath = () =>
         // TODO don't use `process.cwd()` but instead `HasCwd`
         path.isAbsolute(contentDirPath) ? contentDirPath : path.join(process.cwd(), contentDirPath)
-      const cwd = cwd_ ?? getCwdFromContentDirPath()
+
+      const getRelativeCwd = () => path.join(getCwdFromContentDirPath(), path.dirname(rawDocumentData.flattenedPath))
+
+      const getCwd = () => (resolveCwd === 'contentDirPath' ? getCwdFromContentDirPath() : getRelativeCwd())
+
+      // TODO when fixed https://github.com/kentcdodds/mdx-bundler/pull/206
+      if (process.env.NODE_ENV === undefined) {
+        process.env.NODE_ENV = 'development'
+      }
 
       const mdxOptions: BundleMDXOptions<any> = {
         mdxOptions: (opts) => {
@@ -40,9 +57,15 @@ export const bundleMDX = ({
             ...(opts.remarkPlugins ?? []),
             ...(remarkPlugins ?? []),
           ]
-          return opts
+          return mapMdxOptions ? mapMdxOptions(opts) : opts
         },
-        cwd,
+        // User-provided cwd trumps resolution
+        cwd: cwd_ ?? getCwd(),
+        esbuildOptions: (opts, frontmatter) => {
+          // NOTE this is needed to avoid `esbuild` from logging a warning regarding the `tsconfig.json` target option not being used
+          opts.target = 'es2020'
+          return mapEsbuildOptions ? mapEsbuildOptions(opts, frontmatter) : opts
+        },
         // NOTE `restOptions` should be spread at the end to allow for user overrides
         ...restOptions,
       }
@@ -56,6 +79,7 @@ export const bundleMDX = ({
       return res.code
     }),
     T.mapError((error) => new UnexpectedMDXError({ error })),
+    T.tapError(() => OT.addAttribute('mdxString', mdxString)),
     OT.withSpan('@contentlayer/core/markdown:bundleMDX'),
   )
 

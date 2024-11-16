@@ -1,9 +1,8 @@
 import type * as core from '@contentlayer/core'
-import type { PosixFilePath } from '@contentlayer/utils'
-import { filePathJoin } from '@contentlayer/utils'
+import type { AbsolutePosixFilePath, RelativePosixFilePath } from '@contentlayer/utils'
+import { filePathJoin, fs } from '@contentlayer/utils'
 import type { HasConsole } from '@contentlayer/utils/effect'
 import { identity, O, OT, pipe, T, These } from '@contentlayer/utils/effect'
-import { fs } from '@contentlayer/utils/node'
 import matter from 'gray-matter'
 import yaml from 'yaml'
 
@@ -12,7 +11,7 @@ import type { ContentTypeMap, FilePathPatternMap } from '../types.js'
 import { makeAndProvideDocumentContext } from './DocumentContext.js'
 import type { HasDocumentTypeMapState } from './DocumentTypeMap.js'
 import { DocumentTypeMapState } from './DocumentTypeMap.js'
-import { makeDocument } from './mapping.js'
+import { makeDocument } from './mapping/index.js'
 import type { RawContent, RawContentJSON, RawContentMarkdown, RawContentMDX, RawContentYAML } from './types.js'
 import { validateDocumentData } from './validateDocumentData.js'
 
@@ -25,15 +24,15 @@ export const makeCacheItemFromFilePath = ({
   previousCache,
   contentTypeMap,
 }: {
-  relativeFilePath: PosixFilePath
+  relativeFilePath: RelativePosixFilePath
   filePathPatternMap: FilePathPatternMap
   coreSchemaDef: core.SchemaDef
-  contentDirPath: PosixFilePath
+  contentDirPath: AbsolutePosixFilePath
   options: core.PluginOptions
   previousCache: core.DataCache.Cache | undefined
   contentTypeMap: ContentTypeMap
 }): T.Effect<
-  OT.HasTracer & HasConsole & HasDocumentTypeMapState,
+  OT.HasTracer & HasConsole & HasDocumentTypeMapState & core.HasCwd & fs.HasFs,
   never,
   These.These<FetchDataError.FetchDataError, core.DataCache.CacheItem>
 > =>
@@ -89,7 +88,7 @@ export const makeCacheItemFromFilePath = ({
             contentDirPath,
             options,
           }),
-          makeAndProvideDocumentContext({ rawContent, relativeFilePath }),
+          makeAndProvideDocumentContext({ rawContent, relativeFilePath, documentTypeDef }),
         ),
       )
 
@@ -107,12 +106,12 @@ export const makeCacheItemFromFilePath = ({
         warnings,
       )
     }),
-    OT.withSpan('@contentlayer/source-local/fetchData:makeCacheItemFromFilePath'),
+    OT.withSpan('@contentlayer/source-local/fetchData:makeCacheItemFromFilePath', { attributes: { relativeFilePath } }),
     T.mapError((error) => {
       switch (error._tag) {
-        case 'node.fs.StatError':
-        case 'node.fs.ReadFileError':
-        case 'node.fs.FileNotFoundError':
+        case 'fs.StatError':
+        case 'fs.ReadFileError':
+        case 'fs.FileNotFoundError':
           return new FetchDataError.UnexpectedError({ error, documentFilePath: relativeFilePath })
         default:
           return error
@@ -125,10 +124,10 @@ const processRawContent = ({
   fullFilePath,
   relativeFilePath,
 }: {
-  fullFilePath: PosixFilePath
-  relativeFilePath: PosixFilePath
+  fullFilePath: AbsolutePosixFilePath
+  relativeFilePath: RelativePosixFilePath
 }): T.Effect<
-  OT.HasTracer,
+  OT.HasTracer & fs.HasFs,
   | FetchDataError.UnsupportedFileExtension
   | FetchDataError.InvalidFrontmatterError
   | FetchDataError.InvalidMarkdownFileError
@@ -189,7 +188,7 @@ const getComputedValues = ({
 }: {
   documentTypeDef: core.DocumentTypeDef
   document: core.Document
-  documentFilePath: PosixFilePath
+  documentFilePath: RelativePosixFilePath
 }): T.Effect<unknown, FetchDataError.ComputedValueError, undefined | Record<string, any>> => {
   if (documentTypeDef.computedFields === undefined) {
     return T.succeed(undefined)
@@ -202,7 +201,7 @@ const getComputedValues = ({
       mapValue: (field) =>
         T.tryCatchPromise(
           async () => field.resolve(document),
-          (error) => new FetchDataError.ComputedValueError({ error, documentFilePath }),
+          (error) => new FetchDataError.ComputedValueError({ error, documentFilePath, documentTypeDef }),
         ),
     }),
   )
@@ -213,14 +212,20 @@ const parseMarkdown = ({
   documentFilePath,
 }: {
   markdownString: string
-  documentFilePath: PosixFilePath
+  documentFilePath: RelativePosixFilePath
 }): T.Effect<
   unknown,
   FetchDataError.InvalidMarkdownFileError | FetchDataError.InvalidFrontmatterError,
   matter.GrayMatterFile<string>
 > =>
   T.tryCatch(
-    () => matter(markdownString),
+    () =>
+      matter(markdownString, {
+        engines: {
+          // Provide custom YAML engine to avoid parsing of date values https://github.com/jonschlinkert/gray-matter/issues/62)
+          yaml: (str) => yaml.parse(str),
+        },
+      }),
     (error: any) => {
       if (error.name === 'YAMLException') {
         return new FetchDataError.InvalidFrontmatterError({ error, documentFilePath })
@@ -235,7 +240,7 @@ const parseJson = ({
   documentFilePath,
 }: {
   jsonString: string
-  documentFilePath: PosixFilePath
+  documentFilePath: RelativePosixFilePath
 }): T.Effect<unknown, FetchDataError.InvalidJsonFileError, Record<string, any>> =>
   T.tryCatch(
     () => JSON.parse(jsonString),
@@ -247,9 +252,9 @@ const parseYaml = ({
   documentFilePath,
 }: {
   yamlString: string
-  documentFilePath: PosixFilePath
+  documentFilePath: RelativePosixFilePath
 }): T.Effect<unknown, FetchDataError.InvalidYamlFileError, Record<string, any>> =>
   T.tryCatch(
-    () => yaml.parse(yamlString),
+    () => yaml.parse(yamlString) ?? {},
     (error) => new FetchDataError.InvalidYamlFileError({ error, documentFilePath }),
   )

@@ -1,3 +1,5 @@
+> ⚠️ Unfortunately Contentlayer is no longer maintained due to lack of funding. [You can find a fork of the project here.](https://github.com/timlrx/contentlayer2)
+
 # <img src="https://i.imgur.com/fdY8IX2.png" height="30" />&nbsp;&nbsp;Contentlayer [![](https://badgen.net/npm/v/contentlayer)](https://www.npmjs.com/package/contentlayer) [![Discord](https://badgen.net/badge/icon/discord?icon=discord&label)](https://discord.gg/fk83HNECYJ)
 
 Contentlayer is a content SDK that validates and transforms your content into type-safe JSON data you can easily `import` into your application's pages.
@@ -49,9 +51,8 @@ Join [our Discord community](https://discord.gg/fk83HNECYJ) to get help, suggest
 
 ### Who is using Contentlayer?
 
-- [ped.ro](https://ped.ro) ([Source](https://github.com/peduarte/ped.ro))
+- [ped.ro](https://ped.ro)
 - [GraphCMS Docs](https://graphcms.com/docs)
-- [leerob.io](https://leerob.io/) ([Source](https://github.com/leerob/leerob.io))
 - [axeldelafosse.com](https://axeldelafosse.com) ([Source](https://github.com/axeldelafosse/axeldelafosse))
 - [arthurvdiniz.me](https://arthurvdiniz.me) ([Source](https://github.com/arthurvdiniz/me))
 - [imadatyatalah.vercel.app](https://imadatyatalah.vercel.app) ([Source](https://github.com/imadatyatalah/imadatyatalah.me))
@@ -87,5 +88,37 @@ Join [our Discord community](https://discord.gg/fk83HNECYJ) to get help, suggest
 - [royanger.dev](https://royanger.dev) ([Source](https://github.com/royanger/royanger.com))
 - [akashrajpurohit.com](https://akashrajpurohit.com/)
 - [kyoung-jnn.com](https://kyoung-jnn.com) ([Source](https://github.com/kyoung-jnn/kyoung-jin-blog))
+- [MrcatDev](https://blog-nextjs-olive.vercel.app/) ([Source](https://github.com/atxiii/blog-nextjs))
+- [screfy.com](https://screfy.com) ([Source](https://github.com/screfy/screfy.com))
+- [igorkowalczyk.dev](https://igorkowalczyk.dev) ([Source](https://github.com/igorkowalczyk/igorkowalczyk.github.io))
+- [christianpenrod.com](https://christianpenrod.com) ([Source](https://github.com/penrodlol/christianpenrod))
+- [xahidex.com](https://xahidex.com)
+- [hellonext.co](https://hellonext.co)
+- [heykapil.in](https://heykapil.in) ([Source](https://github.com/heykapil/new-blog/))
+- [adrianmato.art](https://adrianmato.art)
+- [livropog.com.br](https://livropog.com.br) ([Source](https://github.com/josenaldo/livro-pog))
+- [rofireza.com](https://rofireza.com/) ([Source](https://github.com/arrofirezasatria/rofireza.com))
+- [jakubh.com](https://jakubh.com/) ([Source](https://github.com/ivenuss/jakubh.com))
+- [fiqry.dev](https://fiqry.dev/) ([Source](https://github.com/fiqryq/fiqry.dev))
+- [soapbox.pub](https://soapbox.pub/) ([Source](https://gitlab.com/soapbox-pub/soapbox.pub))
+- [hafidzamr.dev](https://hafidzamr.dev/) ([Source](https://github.com/hafidzamr/hafidzamr.dev))
+- [anudeepreddy.dev](https://anudeepreddy.dev/)
+- [nikhilmohite.com](https://nikhilmohite.com/)
+- [shenlu.me](https://shenlu.me) ([Source](https://github.com/shenlu89/shenlu89.github.io))
+- [chillinmice.dev](https://chillinmice-dev.vercel.app/) ([Source](https://github.com/restareaByWeezy/tech_blog))
+- [wibb.me](https://wibb.me/) ([Source](https://github.com/wibb36/wibb.me))
+- [jasongerbes.com](https://jasongerbes.com) ([Source](https://github.com/jasongerbes/jasongerbes.com))
+- [Irregular-expressions.com](https://irregular-expressions.com) ([Source](https://github.com/samjhecht/irregular-expressions))
+- [goosebumps.fm](https://goosebumps.fm) ([Source](https://github.com/txndai/nextgoose))
+- [willin.wang](https://willin.wang) ([Source](https://github.com/willin/blog))
+- [mateusf.com](https://mateusf.com) ([Source](https://github.com/mateusfg7/mfg-b))
+- [algolia.com/doc-beta](https://www.algolia.com/doc-beta)
+- [prologue.dev](https://prologue.dev)([Source](https://github.com/huaixuOvO/prologue.dev))
+- [justgokul.dev](https://justgokul.dev)([Source](https://github.com/xenomech/justgokul.dev))
+- [shubhdeepchhabra.in](https://www.shubhdeepchhabra.in)([Source](https://github.com/shubhdeep12/shubhdeepchhabra.in))
+- [zanreal.net](https://www.zanreal.net/)
+- [devtella](https://devtella.vercel.app/)
+- [Modern Developer Blog Template (Digital Garden Starter)](https://github.com/thedevdavid/digital-garden/)([Source](https://github.com/thedevdavid/digital-garden/))
+- [floriankiem.com](floriandwt.com) ([Source](https://github.com/floriandwt/florians-website/))
 
 Are you using Contentlayer? Please add your page (and repo) to the end of the list via a PR. 🙏

@@ -1,6 +1,6 @@
 // ets_tracing: off
 
-import { Chunk, Effect as T, Either as E, pipe } from '@effect-ts/core'
+import { Cause, Chunk, Effect as T, Either as E, pipe } from '@effect-ts/core'
 import * as Tuple from '@effect-ts/core/Collections/Immutable/Tuple'
 
 import { ConsoleService } from './ConsoleService.js'
@@ -30,6 +30,20 @@ export const rightOrFail = <R, E1, EE1, A>(
       (x) => T.succeed(x, __trace),
     ),
   )
+
+/** Logs both on errors and defects */
+export const tapCauseLogPretty = <R, E, A>(eff: T.Effect<R, E, A>) =>
+  T.tapCause_(eff, (err) => T.succeedWith(() => console.error(Cause.pretty(err))))
+
+export const debugLogEnv = (msg?: string) =>
+  pipe(
+    T.environment(),
+    T.tap((env) => log(msg ?? 'debugLogEnv', env)),
+  )
+
+export const tryPromiseOrDie = <A>(promise: () => Promise<A>) => pipe(T.tryPromise(promise), T.orDie)
+
+export const sync = <A>(fn: () => A): T.Effect<unknown, never, A> => T.succeedWith(fn)
 
 export const eitherMap =
   <A1, A2>(mapRight: (a1: A1) => A2) =>
@@ -68,3 +82,8 @@ export const forEachParDict_ = <A, R, E, B>(
     T.map(Chunk.toArray),
     T.map(Object.fromEntries),
   )
+
+export const tapSync =
+  <A>(tapFn: (a: A) => unknown) =>
+  <R, E>(eff: T.Effect<R, E, A>) =>
+    T.tap_(eff, (a) => T.succeedWith(() => tapFn(a)))

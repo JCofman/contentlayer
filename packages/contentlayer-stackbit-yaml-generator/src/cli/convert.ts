@@ -1,11 +1,12 @@
 import type * as core from '@contentlayer/core'
 import * as utils from '@contentlayer/utils'
 import type * as Stackbit from '@stackbit/sdk'
+import type * as StackbitTypes from '@stackbit/types'
 
 export const convertSchema = (
   { documentTypeDefMap, nestedTypeDefMap }: core.SchemaDef,
   extensions: core.PluginExtensions,
-): Stackbit.YamlConfig => {
+): StackbitTypes.StackbitConfig => {
   // TODO this needs to be more dynamic/configurable
   const urlPathFieldName = 'url_path'
   const documentTypeDefs = Object.values(documentTypeDefMap)
@@ -37,7 +38,7 @@ const documentOrObjectDefToStackbitYamlModel = ({
   def: core.DocumentTypeDef | core.NestedTypeDef
   type: Stackbit.YamlModel['type']
   urlPathFieldName: string
-}): { model: Stackbit.YamlModel; name: string } => {
+}): { model: StackbitTypes.NamelessModel; name: string } => {
   const ext = def.extensions.stackbit
   const fields =
     def._tag === 'DocumentTypeDef'
@@ -68,7 +69,8 @@ const documentOrObjectDefToStackbitYamlModel = ({
     case 'data':
       return { name, model: { ...modelCommon, type: 'data', singleInstance } }
     case 'config':
-      return { name, model: { ...modelCommon, type: 'config', singleInstance } }
+      //   return { name, model: { ...modelCommon, type: 'config', singleInstance } }
+      throw new Error('Config models are not supported anymore')
     case 'object':
       return { name, model: { ...modelCommon, type: 'object' } }
     case 'page':
@@ -115,7 +117,10 @@ const fieldDefToStackbitField = ({
       return { ...commonField, type: 'object', fields: [] }
     case 'list':
     case 'list_polymorphic':
+      // @ts-expect-error TODO fix this together with some help from Stackbit
       return { ...commonField, type: 'list', items: listFieldDefToStackbitFieldListItems(fieldDef) }
+    case 'image':
+      return { ...commonField, type: 'string' }
     case 'date':
     case 'number':
     case 'string':
@@ -136,7 +141,7 @@ const fieldDefToStackbitField = ({
 const listFieldDefToStackbitFieldListItems = (
   fieldDef: core.ListFieldDef | core.ListPolymorphicFieldDef,
 ): Stackbit.FieldListItems => {
-  const getModelName = (item: core.ListFieldDefItem.ItemNested | core.ListFieldDefItem.ItemReference) =>
+  const getModelName = (item: core.ListFieldDefItem.ItemNested | core.ListFieldDefItem.ItemDocumentReference) =>
     item.type === 'reference' ? item.documentTypeName : item.nestedTypeName
 
   if (fieldDef.type === 'list' && (fieldDef.of.type === 'reference' || fieldDef.of.type === 'nested')) {
@@ -157,7 +162,7 @@ const listFieldDefToStackbitFieldListItems = (
   if (
     fieldDef.type === 'list_polymorphic' &&
     fieldDef.of.every(
-      (_): _ is core.ListFieldDefItem.ItemReference | core.ListFieldDefItem.ItemNested =>
+      (_): _ is core.ListFieldDefItem.ItemDocumentReference | core.ListFieldDefItem.ItemNested =>
         _.type === 'reference' || _.type === 'nested',
     )
   ) {
@@ -171,6 +176,7 @@ const listFieldDefToStackbitFieldListItems = (
     switch (fieldDef.of.type) {
       case 'string':
       case 'boolean':
+      case 'number':
         return { type: fieldDef.of.type }
       case 'nested_unnamed':
         return {
@@ -184,6 +190,12 @@ const listFieldDefToStackbitFieldListItems = (
       case 'nested':
       case 'reference':
         throw new Error('Case handled above')
+      case 'json':
+      case 'markdown':
+      case 'mdx':
+      case 'date':
+      case 'image':
+        throw new Error('Not yet implemented')
       default:
         utils.casesHandled(fieldDef.of)
     }

@@ -1,7 +1,7 @@
-import type * as core from '@contentlayer/core'
+import * as core from '@contentlayer/core'
 import { processArgs, SourceProvideSchemaError } from '@contentlayer/core'
-import { unknownToPosixFilePath } from '@contentlayer/utils'
-import { pipe, T } from '@contentlayer/utils/effect'
+import { unknownToAbsolutePosixFilePath, unknownToRelativePosixFilePath } from '@contentlayer/utils'
+import { pipe, S, T } from '@contentlayer/utils/effect'
 
 import { fetchData } from './fetchData/index.js'
 import type * as LocalSchema from './schema/defs/index.js'
@@ -64,6 +64,8 @@ export type Args = {
   contentDirExclude?: string[]
   // NOTE https://github.com/parcel-bundler/watcher/issues/64
 
+  onSuccess?: core.SuccessCallback
+
   /**
    * This is an experimental feature and should be ignored for now.
    */
@@ -73,20 +75,20 @@ export type Args = {
 } & PluginOptions &
   Partial<Flags>
 
-export const makeSource: core.MakeSourcePlugin<Args> = async (args) => {
+export const makeSource: core.MakeSourcePlugin<Args> = (args) => async (sourceKey) => {
   const {
     options,
     extensions,
     restArgs: {
       documentTypes,
-      contentDirPath,
-      contentDirInclude,
-      contentDirExclude,
+      contentDirPath: contentDirPath_,
+      contentDirInclude: contentDirInclude_,
+      contentDirExclude: contentDirExclude_,
       onUnknownDocuments = 'skip-warn',
       onMissingOrIncompatibleData = 'skip-warn',
       onExtraFieldData = 'warn',
     },
-  } = await processArgs(args)
+  } = await processArgs(args, sourceKey)
 
   const flags: Flags = { onUnknownDocuments, onExtraFieldData, onMissingOrIncompatibleData }
 
@@ -103,17 +105,31 @@ export const makeSource: core.MakeSourcePlugin<Args> = async (args) => {
         makeCoreSchema({ documentTypeDefs, options, esbuildHash }),
         T.mapError((error) => new SourceProvideSchemaError({ error })),
       ),
-    fetchData: ({ schemaDef, verbose }) =>
-      fetchData({
-        coreSchemaDef: schemaDef,
-        documentTypeDefs,
-        flags,
-        options,
-        contentDirPath: unknownToPosixFilePath(contentDirPath),
-        contentDirExclude: (contentDirExclude ?? contentDirExcludeDefault).map((_) => unknownToPosixFilePath(_)),
-        contentDirInclude: (contentDirInclude ?? []).map((_) => unknownToPosixFilePath(_)),
-        verbose,
-      }),
+    fetchData: ({ schemaDef, verbose, skipCachePersistence }) =>
+      pipe(
+        S.fromEffect(core.getCwd),
+        S.chain((cwd) => {
+          const contentDirPath = unknownToAbsolutePosixFilePath(contentDirPath_, cwd)
+          const contentDirExclude = (contentDirExclude_ ?? contentDirExcludeDefault).map((_) =>
+            unknownToRelativePosixFilePath(_, contentDirPath),
+          )
+          const contentDirInclude = (contentDirInclude_ ?? []).map((_) =>
+            unknownToRelativePosixFilePath(_, contentDirPath),
+          )
+
+          return fetchData({
+            coreSchemaDef: schemaDef,
+            documentTypeDefs,
+            flags,
+            options,
+            contentDirPath,
+            contentDirExclude,
+            contentDirInclude,
+            verbose,
+            skipCachePersistence,
+          })
+        }),
+      ),
   }
 }
 

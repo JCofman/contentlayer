@@ -1,8 +1,7 @@
 import type * as core from '@contentlayer/core'
-import type { PosixFilePath } from '@contentlayer/utils'
-import { filePathJoin } from '@contentlayer/utils'
+import type { AbsolutePosixFilePath, RelativePosixFilePath } from '@contentlayer/utils'
+import { filePathJoin, fs } from '@contentlayer/utils'
 import { O, OT, pipe, T, These } from '@contentlayer/utils/effect'
-import { fs } from '@contentlayer/utils/node'
 import micromatch from 'micromatch'
 
 import { FetchDataError } from '../errors/index.js'
@@ -33,13 +32,13 @@ export const validateDocumentData = ({
   coreSchemaDef: core.SchemaDef
   rawContent: RawContent
   /** relativeFilePath just needed for better error handling */
-  relativeFilePath: PosixFilePath
+  relativeFilePath: RelativePosixFilePath
   filePathPatternMap: FilePathPatternMap
   options: core.PluginOptions
-  contentDirPath: PosixFilePath
+  contentDirPath: AbsolutePosixFilePath
   contentTypeMap: ContentTypeMap
 }): T.Effect<
-  HasDocumentTypeMapState & OT.HasTracer,
+  HasDocumentTypeMapState & OT.HasTracer & fs.HasFs,
   never,
   These.These<ValidateDocumentDataError, { documentTypeDef: core.DocumentTypeDef }>
 > =>
@@ -73,51 +72,32 @@ export const validateDocumentData = ({
 
       yield* $(DocumentTypeMapState.update((_) => _.add(documentDefName, relativeFilePath)))
 
-      const existingDataFieldKeys = Object.keys(rawContent.fields)
+      const requiredFieldError = validateRequiredFieldValues({
+        rawFieldValues: rawContent.fields,
+        documentFilePath: relativeFilePath,
+        documentTypeDef,
+        fieldDefs: documentTypeDef.fieldDefs,
+      })
 
-      // make sure all required fields are present
-      const requiredFieldsWithoutDefaultValue = documentTypeDef.fieldDefs.filter(
-        (_) => _.isRequired && _.default === undefined && _.isSystemField === false,
-      )
-      const misingRequiredFieldDefs = requiredFieldsWithoutDefaultValue.filter(
-        (fieldDef) => !existingDataFieldKeys.includes(fieldDef.name),
-      )
-      if (misingRequiredFieldDefs.length > 0) {
-        return These.fail(
-          new FetchDataError.MissingRequiredFieldsError({
-            documentFilePath: relativeFilePath,
-            documentTypeName: documentTypeDef.name,
-            fieldDefsWithMissingData: misingRequiredFieldDefs,
-          }),
-        )
+      if (O.isSome(requiredFieldError)) {
+        return These.fail(requiredFieldError.value)
       }
 
-      let warningOption: O.Option<ValidateDocumentDataError> = O.none
-
-      // warn about data fields not defined in the schema
-      const typeFieldName = options.fieldOptions.typeFieldName
-      // NOTE we also need to add the system-level type name field to the list of existing data fields
-      const schemaFieldNames = documentTypeDef.fieldDefs.map((_) => _.name).concat([typeFieldName])
-      const extraFieldEntries = existingDataFieldKeys
-        .filter((fieldKey) => !schemaFieldNames.includes(fieldKey))
-        .map((fieldKey) => [fieldKey, rawContent.fields[fieldKey]] as const)
-
-      if (extraFieldEntries.length > 0) {
-        const extraFieldDataError = new FetchDataError.ExtraFieldDataError({
-          documentFilePath: relativeFilePath,
-          extraFieldEntries,
-          documentTypeName: documentTypeDef.name,
-        })
-
-        warningOption = O.some(extraFieldDataError)
-      }
+      const warningOption = validateExtraFieldValues({
+        fieldDefs: documentTypeDef.fieldDefs,
+        rawFieldValues: rawContent.fields,
+        options,
+        documentTypeDef,
+        documentFilePath: relativeFilePath,
+      })
 
       for (const fieldDef of documentTypeDef.fieldDefs) {
         const fieldValidOption = yield* $(
           validateFieldData({
             documentFilePath: relativeFilePath,
-            documentTypeName: documentTypeDef.name,
+            documentTypeDef,
             fieldDef,
+            coreSchemaDef,
             rawFieldData: rawContent.fields[fieldDef.name],
             contentDirPath,
           }),
@@ -127,8 +107,6 @@ export const validateDocumentData = ({
           return These.fail(fieldValidOption.value)
         }
       }
-
-      // TODO validate nesteds
 
       return These.warnOption({ documentTypeDef }, warningOption)
     }),
@@ -180,18 +158,25 @@ const validateFieldData = ({
   fieldDef,
   rawFieldData,
   documentFilePath,
-  documentTypeName,
+  coreSchemaDef,
+  documentTypeDef,
   contentDirPath,
 }: {
   fieldDef: core.FieldDef
   rawFieldData: any
-  documentFilePath: PosixFilePath
-  documentTypeName: string
-  contentDirPath: PosixFilePath
+  documentFilePath: RelativePosixFilePath
+  /** Only needed for error handling */
+  documentTypeDef: core.DocumentTypeDef
+  coreSchemaDef: core.SchemaDef
+  contentDirPath: AbsolutePosixFilePath
 }): T.Effect<
-  OT.HasTracer,
+  OT.HasTracer & fs.HasFs,
   never,
-  O.Option<FetchDataError.IncompatibleFieldDataError | FetchDataError.ReferencedFileDoesNotExistError>
+  O.Option<
+    | FetchDataError.IncompatibleFieldDataError
+    | FetchDataError.ReferencedFileDoesNotExistError
+    | FetchDataError.MissingRequiredFieldsError
+  >
 > =>
   T.gen(function* ($) {
     const dataIsNil = rawFieldData === undefined || rawFieldData === null
@@ -207,7 +192,7 @@ const validateFieldData = ({
               new FetchDataError.IncompatibleFieldDataError({
                 incompatibleFieldData: [[fieldDef.name, rawFieldData]],
                 documentFilePath,
-                documentTypeName,
+                documentTypeDef,
               }),
             )
       // TODO also check for references in lists
@@ -221,23 +206,134 @@ const validateFieldData = ({
                 referencedFilePath: rawFieldData as any,
                 fieldName: fieldDef.name,
                 documentFilePath,
-                documentTypeName,
+                documentTypeDef,
               }),
             )
           }
         }
+        return O.none
+      case 'nested_unnamed':
+      case 'nested': {
+        const nestedFieldDefs =
+          fieldDef.type === 'nested_unnamed'
+            ? fieldDef.typeDef.fieldDefs
+            : coreSchemaDef.nestedTypeDefMap[fieldDef.nestedTypeName]!.fieldDefs
+
+        const nestedFieldError = validateRequiredFieldValues({
+          documentFilePath,
+          documentTypeDef,
+          fieldDefs: nestedFieldDefs,
+          rawFieldValues: rawFieldData,
+        })
+
+        if (O.isSome(nestedFieldError)) return nestedFieldError
+
+        // TODO also check for extra fields (but this will require a refactor)
+
+        for (const fieldDef of nestedFieldDefs) {
+          const fieldValidOption = yield* $(
+            validateFieldData({
+              documentFilePath,
+              documentTypeDef,
+              coreSchemaDef,
+              fieldDef,
+              rawFieldData: rawFieldData[fieldDef.name],
+              contentDirPath,
+            }),
+          )
+
+          if (O.isSome(fieldValidOption)) {
+            return fieldValidOption
+          }
+        }
+
+        return O.none
+      }
+      case 'nested_polymorphic': // TODO
       // TODO validate whether data has correct type (probably via zod)
       default:
         return O.none
     }
   })['|>'](T.orDie)
 
+const validateRequiredFieldValues = ({
+  rawFieldValues,
+  fieldDefs,
+  documentTypeDef,
+  documentFilePath,
+}: {
+  rawFieldValues: Record<string, any>
+  fieldDefs: core.FieldDef[]
+  /** Only needed for error handling - TODO make more specific when called with nested type defs */
+  documentTypeDef: core.DocumentTypeDef
+  /** Only needed for error handling */
+  documentFilePath: RelativePosixFilePath
+}) => {
+  const existingDataFieldKeys = Object.keys(rawFieldValues)
+
+  const requiredFieldsWithoutDefaultValue = fieldDefs.filter(
+    (_) => _.isRequired && _.default === undefined && _.isSystemField === false,
+  )
+  const misingRequiredFieldDefs = requiredFieldsWithoutDefaultValue.filter(
+    (fieldDef) => !existingDataFieldKeys.includes(fieldDef.name),
+  )
+  if (misingRequiredFieldDefs.length > 0) {
+    return O.some(
+      new FetchDataError.MissingRequiredFieldsError({
+        documentFilePath,
+        documentTypeDef,
+        fieldDefsWithMissingData: misingRequiredFieldDefs,
+      }),
+    )
+  }
+
+  return O.none
+}
+
+const validateExtraFieldValues = ({
+  rawFieldValues,
+  fieldDefs,
+  options,
+  documentTypeDef,
+  documentFilePath,
+}: {
+  rawFieldValues: Record<string, any>
+  fieldDefs: core.FieldDef[]
+  options: core.PluginOptions
+  /** Only needed for error handling - TODO make more specific when called with nested type defs */
+  documentTypeDef: core.DocumentTypeDef
+  /** Only needed for error handling */
+  documentFilePath: RelativePosixFilePath
+}) => {
+  const existingDataFieldKeys = Object.keys(rawFieldValues)
+
+  // warn about data fields not defined in the schema
+  const typeFieldName = options.fieldOptions.typeFieldName
+  // NOTE we also need to add the system-level type name field to the list of existing data fields
+  const schemaFieldNames = fieldDefs.map((_) => _.name).concat([typeFieldName])
+  const extraFieldEntries = existingDataFieldKeys
+    .filter((fieldKey) => !schemaFieldNames.includes(fieldKey))
+    .map((fieldKey) => [fieldKey, rawFieldValues[fieldKey]] as const)
+
+  if (extraFieldEntries.length > 0) {
+    return O.some(
+      new FetchDataError.ExtraFieldDataError({
+        documentFilePath,
+        extraFieldEntries,
+        documentTypeDef,
+      }),
+    )
+  }
+
+  return O.none
+}
+
 const validateContentTypeMatchesFileExtension = ({
   contentType,
   relativeFilePath,
 }: {
   contentType: DocumentContentType
-  relativeFilePath: PosixFilePath
+  relativeFilePath: RelativePosixFilePath
 }) => {
   const extension = relativeFilePath.toLowerCase().split('.').pop()!
 

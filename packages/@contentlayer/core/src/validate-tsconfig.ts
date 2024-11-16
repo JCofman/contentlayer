@@ -1,9 +1,9 @@
-import type { PosixFilePath } from '@contentlayer/utils'
-import { filePathJoin } from '@contentlayer/utils'
-import { Chunk, O, OT, pipe, T, Tagged } from '@contentlayer/utils/effect'
-import { fs } from '@contentlayer/utils/node'
-import { parse as parseJsonc } from 'comment-json'
 import path from 'node:path'
+
+import type { AbsolutePosixFilePath } from '@contentlayer/utils'
+import { filePathJoin, fs } from '@contentlayer/utils'
+import { Chunk, O, OT, pipe, T, Tagged } from '@contentlayer/utils/effect'
+import { parse as parseJsonc } from 'comment-json'
 
 import { getCwd } from './cwd.js'
 
@@ -61,7 +61,7 @@ To disable this warning you can set \`disableImportAliasWarning: true\` in your 
   OT.withSpan('validateTsconfig'),
 )
 
-const tryParseFile = (filePath: PosixFilePath) =>
+const tryParseFile = (filePath: AbsolutePosixFilePath) =>
   pipe(
     fs.readFile(filePath),
     T.chain((contents) =>
@@ -73,7 +73,7 @@ const tryParseFile = (filePath: PosixFilePath) =>
     T.map((config: any) => ({ fileName: path.basename(filePath), config })),
     T.tapError((error) =>
       T.succeedWith(() => {
-        if (error._tag === 'InvalidTsconfigError' || error._tag === 'node.fs.ReadFileError') {
+        if (error._tag === 'InvalidTsconfigError' || error._tag === 'fs.ReadFileError') {
           console.log(`Contentlayer: Invalid jsconfig/tsconfig file found: ${filePath}`)
         }
       }),

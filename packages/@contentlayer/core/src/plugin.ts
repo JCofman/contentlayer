@@ -1,5 +1,6 @@
-import type { Thunk } from '@contentlayer/utils'
+import type { fs } from '@contentlayer/utils'
 import type { E, HasClock, HasConsole, OT, S, T } from '@contentlayer/utils/effect'
+import type * as mdxEsbuild from '@mdx-js/esbuild/lib'
 import type * as mdxBundler from 'mdx-bundler/dist/types'
 import type { LiteralUnion } from 'type-fest'
 import type * as unified from 'unified'
@@ -7,6 +8,7 @@ import type * as unified from 'unified'
 import type { HasCwd } from './cwd.js'
 import type { DataCache } from './DataCache.js'
 import type { SourceFetchDataError, SourceProvideSchemaError } from './errors.js'
+import type { GetDataExportsGen } from './gen.js'
 import type { SchemaDef, StackbitExtension } from './schema/index.js'
 
 export type SourcePluginType = LiteralUnion<'local' | 'contentful' | 'sanity', string>
@@ -22,6 +24,14 @@ export type PluginOptions = {
   date: DateOptions | undefined
   fieldOptions: FieldOptions
   disableImportAliasWarning: boolean
+  experimental: PluginOptionsExperimental
+  onSuccess: SuccessCallback | undefined
+}
+
+export type SuccessCallback = (getData: () => Promise<GetDataExportsGen>) => Promise<void>
+
+export type PluginOptionsExperimental = {
+  enableDynamicBuild: boolean
 }
 
 /**
@@ -58,21 +68,32 @@ export type MDXOptions = {
   rehypePlugins?: unified.Pluggable[]
   /**  */
   /**
-   * This allows you to modify the built-in MDX configuration (passed to @mdx-js/mdx compile).
+   * This allows you to modify the built-in MDX configuration (passed to @mdx-js/mdx compile via mdx-bundler).
    * This can be helpful for specifying your own remarkPlugins/rehypePlugins.
    *
-   * If you're providing `mdxOptions` then `rehypePlugins` and `remarkPlugins` will be ignored.
+   * Note that Contentlayer by default applies the built-in `addRawDocumentToVFile` remark plugin
+   * which adds the raw document data to the vfile under `vfile.data.rawDocumentData`.
    */
-  mdxOptions?: MDXBundlerMDXOptions
+  mdxOptions?: MDXBundlerMapOptions
+  /**
+   * How we resolve the cwd passed to mdx-bundler when processing a file. If an explicit `cwd`
+   * is provided this option will be ignored.
+   * - `relative` sets the cwd to the directory the file resides in.
+   * - `contentDirPath` sets the cwd to the contentDirPath. This was the default behavior up until v0.2.6.
+   * @default "relative"
+   */
+  resolveCwd?: 'relative' | 'contentDirPath'
 } & Omit<mdxBundler.BundleMDXOptions<any>, 'mdxOptions'>
 
-export type MDXBundlerMDXOptions = mdxBundler.BundleMDXOptions<any>['mdxOptions']
+export type MDXBundlerMapOptions = (options: mdxEsbuild.ProcessorOptions) => mdxEsbuild.ProcessorOptions
 
 export type DateOptions = {
   /**
    * Use provided timezone (e.g. `America/New_York`)
    *
-   * Based on: https://github.com/marnusw/date-fns-tz#zonedtimetoutc
+   * Based on: https://tc39.es/proposal-temporal/docs/timezone.html
+   *
+   * NOTE The provided timezone will only be used for values that don't already have a timezone set.
    */
   timezone?: string
 }
@@ -97,7 +118,6 @@ export type SourcePlugin = {
   type: SourcePluginType
   provideSchema: ProvideSchema
   fetchData: FetchData
-} & {
   options: PluginOptions
   extensions: PluginExtensions
 }
@@ -108,8 +128,9 @@ export type ProvideSchema = (
 export type FetchData = (_: {
   schemaDef: SchemaDef
   verbose: boolean
+  skipCachePersistence?: boolean
 }) => S.Stream<
-  OT.HasTracer & HasClock & HasCwd & HasConsole,
+  OT.HasTracer & HasClock & HasCwd & HasConsole & fs.HasFs,
   never,
   E.Either<SourceFetchDataError | SourceProvideSchemaError, DataCache.Cache>
 >
@@ -119,8 +140,10 @@ export type FetchData = (_: {
 // ) => Promise<core.SourcePlugin>
 
 export type MakeSourcePlugin<TArgs extends PartialArgs> = (
-  _: TArgs | Thunk<TArgs> | Thunk<Promise<TArgs>>,
-) => Promise<SourcePlugin>
+  _: TArgs | ThunkWithSourceKey<TArgs> | ThunkWithSourceKey<Promise<TArgs>>,
+) => (sourceKey: string | undefined) => Promise<SourcePlugin>
+
+export type ThunkWithSourceKey<T> = (sourceKey: string | undefined) => T
 
 export type PartialArgs = {
   markdown?: MarkdownOptions | MarkdownUnifiedBuilderCallback | undefined
@@ -129,6 +152,8 @@ export type PartialArgs = {
   fieldOptions?: Partial<FieldOptions>
   extensions?: PluginExtensions
   disableImportAliasWarning?: boolean
+  experimental?: Partial<PluginOptionsExperimental>
+  onSuccess?: SuccessCallback | undefined
 }
 
 export const defaultFieldOptions: FieldOptions = {
@@ -137,14 +162,34 @@ export const defaultFieldOptions: FieldOptions = {
 }
 
 export const processArgs = async <TArgs extends PartialArgs>(
-  argsOrArgsThunk: TArgs | Thunk<TArgs> | Thunk<Promise<TArgs>>,
+  argsOrArgsThunk: TArgs | ThunkWithSourceKey<TArgs> | ThunkWithSourceKey<Promise<TArgs>>,
+  sourceKey: string | undefined,
 ): Promise<{
   extensions: PluginExtensions
   options: PluginOptions
-  restArgs: Omit<TArgs, 'extensions' | 'fieldOptions' | 'markdown' | 'mdx' | 'date' | 'disableImportAliasWarning'>
+  restArgs: Omit<
+    TArgs,
+    | 'extensions'
+    | 'fieldOptions'
+    | 'markdown'
+    | 'mdx'
+    | 'date'
+    | 'disableImportAliasWarning'
+    | 'experimental'
+    | 'onSuccess'
+  >
 }> => {
-  const { extensions, fieldOptions, markdown, mdx, date, disableImportAliasWarning, ...restArgs } =
-    typeof argsOrArgsThunk === 'function' ? await argsOrArgsThunk() : argsOrArgsThunk
+  const {
+    extensions,
+    fieldOptions,
+    markdown,
+    mdx,
+    date,
+    disableImportAliasWarning,
+    experimental,
+    onSuccess,
+    ...restArgs
+  } = typeof argsOrArgsThunk === 'function' ? await argsOrArgsThunk(sourceKey) : argsOrArgsThunk
 
   const options: PluginOptions = {
     markdown,
@@ -155,6 +200,10 @@ export const processArgs = async <TArgs extends PartialArgs>(
       typeFieldName: fieldOptions?.typeFieldName ?? defaultFieldOptions.typeFieldName,
     },
     disableImportAliasWarning: disableImportAliasWarning ?? false,
+    experimental: {
+      enableDynamicBuild: experimental?.enableDynamicBuild ?? false,
+    },
+    onSuccess,
   }
 
   return { extensions: extensions ?? {}, options, restArgs }
